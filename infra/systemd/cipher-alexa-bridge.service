@@ -1,0 +1,21 @@
+[Unit]
+Description=Cipher Alexa Bridge
+After=network-online.target openclaw-gateway.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@CIPHER_ROOT@
+EnvironmentFile=@CIPHER_ROOT@/.env
+ExecStart=@CIPHER_ROOT@/.venv/bin/cipher-alexa-bridge
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@CIPHER_ROOT@/state
+UMask=0077
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+
+
+def load_env() -> None:
+    path = ROOT / ".env"
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key and key.replace("_", "").isalnum():
+            os.environ.setdefault(key, value.strip().strip("'\""))
+
+
+def run(*command: str, check: bool = True) -> int:
+    completed = subprocess.run(command, cwd=ROOT, check=False, env=os.environ.copy())
+    if check and completed.returncode:
+        raise SystemExit(completed.returncode)
+    return completed.returncode
+
+
+def setup(_: argparse.Namespace) -> None:
+    run("bash", str(ROOT / "scripts/bootstrap.sh"))
+    load_env()
+    if shutil.which("openclaw") is None:
+        run("bash", str(ROOT / "scripts/install-openclaw.sh"))
+    run("bash", str(ROOT / "scripts/install-systemd.sh"))
+    run("bash", str(ROOT / "scripts/configure-openclaw.sh"))
+    print("Setup complete. Next run: ./cipher auth codex")
+
+
+def configure(_: argparse.Namespace) -> None:
+    load_env()
+    run("bash", str(ROOT / "scripts/install-systemd.sh"))
+    run("bash", str(ROOT / "scripts/configure-openclaw.sh"))
+    print("Edit .env and config/*.yaml for local names and credentials, then restart Cipher.")
+
+
+def auth(args: argparse.Namespace) -> None:
+    load_env()
+    if args.provider == "codex":
+        agent_id = os.environ.get("OPENCLAW_AGENT_ID", "cipher")
+        run(
+            "openclaw",
+            "models",
+            "auth",
+            "login",
+            "--provider",
+            "openai",
+            "--agent",
+            agent_id,
+            "--set-default",
+        )
+        print(
+            "Codex auth complete. OpenClaw selected its current recommended account model; "
+            "CIPHER_PRIMARY_MODEL can override Cipher specifically."
+        )
+    else:
+        if shutil.which("claude") is None:
+            run("bash", str(ROOT / "scripts/install-claude.sh"))
+        run("claude", "auth", "login")
+
+
+def service_action(action: str) -> None:
+    load_env()
+    if action == "up":
+        run("openclaw", "gateway", "start")
+        run("systemctl", "--user", "enable", "--now", "cipher-alexa-bridge.service")
+    elif action == "down":
+        run("systemctl", "--user", "stop", "cipher-alexa-bridge.service", check=False)
+        run("openclaw", "gateway", "stop", check=False)
+    else:
+        run("openclaw", "gateway", "restart")
+        run("systemctl", "--user", "restart", "cipher-alexa-bridge.service")
+
+
+def status(_: argparse.Namespace) -> None:
+    load_env()
+    run("openclaw", "status", check=False)
+    run(
+        "systemctl",
+        "--user",
+        "status",
+        "cipher-alexa-bridge.service",
+        "--no-pager",
+        check=False,
+    )
+
+
+def doctor(args: argparse.Namespace) -> None:
+    load_env()
+    venv_python = ROOT / ".venv/bin/python"
+    python = str(venv_python) if venv_python.exists() else sys.executable
+    command = [python, str(ROOT / "scripts/doctor.py")]
+    if args.component:
+        command.append(args.component)
+    raise SystemExit(run(*command, check=False))
+
+
+def logs(args: argparse.Namespace) -> None:
+    command = [
+        "journalctl",
+        "--user",
+        "-u",
+        "openclaw-gateway.service",
+        "-u",
+        "cipher-alexa-bridge.service",
+        "-n",
+        str(args.lines),
+    ]
+    command.append("-f" if args.follow else "--no-pager")
+    run(*command, check=False)
+
+
+def alexa(_args: argparse.Namespace) -> None:
+    load_env()
+    run(sys.executable, str(ROOT / "scripts/package-alexa.py"))
+
+
+def tunnel(args: argparse.Namespace) -> None:
+    load_env()
+    if shutil.which("tailscale") is None:
+        raise SystemExit("tailscale is not installed. See docs/ALEXA.md.")
+    port = os.environ.get("ALEXA_BRIDGE_PORT", "8787")
+    if args.tunnel_command == "status":
+        run("tailscale", "funnel", "status", check=False)
+        return
+    print("Opening Tailscale's interactive login flow.")
+    run("tailscale", "up")
+    print("Enable HTTPS certificates and Funnel for this tailnet in the Tailscale admin console.")
+    print(f"Then run: sudo tailscale funnel {port}")
+    print("Paste the printed https://<name>.ts.net URL into the Alexa Developer Console.")
+    print("See docs/ALEXA.md for the full walkthrough.")
+
+
+def update(_: argparse.Namespace) -> None:
+    load_env()
+    run("bash", str(ROOT / "scripts/update.sh"))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="./cipher",
+        description="Manage the Cipher personal assistant stack.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+    help_parser = sub.add_parser("help", help="Show this command reference")
+    help_parser.set_defaults(func=lambda _args: parser.print_help())
+    sub.add_parser("setup", help="Bootstrap Python, OpenClaw, agent config, and user services").set_defaults(
+        func=setup
+    )
+    sub.add_parser("configure", help="Apply idempotent OpenClaw and MCP configuration").set_defaults(
+        func=configure
+    )
+    auth_parser = sub.add_parser("auth", help="Authenticate an agent runtime")
+    auth_parser.add_argument("provider", choices=("codex", "claude"))
+    auth_parser.set_defaults(func=auth)
+    for name in ("up", "down", "restart"):
+        item = sub.add_parser(name, help=f"{name.capitalize()} Cipher services")
+        item.set_defaults(func=lambda _args, action=name: service_action(action))
+    sub.add_parser("status", help="Show OpenClaw and bridge service status").set_defaults(func=status)
+    doctor_parser = sub.add_parser("doctor", help="Run actionable health and security checks")
+    doctor_parser.add_argument("component", nargs="?", choices=("codex", "claude"))
+    doctor_parser.set_defaults(func=doctor)
+    logs_parser = sub.add_parser("logs", help="Read private systemd logs")
+    logs_parser.add_argument("--lines", type=int, default=200)
+    logs_parser.add_argument("--follow", action="store_true")
+    logs_parser.set_defaults(func=logs)
+    alexa_parser = sub.add_parser("alexa", help="Stage Alexa skill assets for manual console import")
+    alexa_parser.add_argument("alexa_command", choices=("package",))
+    alexa_parser.set_defaults(func=alexa)
+    tunnel_parser = sub.add_parser("tunnel", help="Set up or inspect the Tailscale Funnel")
+    tunnel_parser.add_argument("tunnel_command", choices=("setup", "status"))
+    tunnel_parser.set_defaults(func=tunnel)
+    sub.add_parser("update", help="Fast-forward and update dependencies with verification").set_defaults(
+        func=update
+    )
+    return parser
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

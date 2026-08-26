@@ -1,0 +1,48 @@
+{
+  "manifest": {
+    "manifestVersion": "1.0",
+    "publishingInformation": {
+      "locales": {
+        "en-US": {
+          "name": "Cipher",
+          "summary": "Private voice access to your Cipher assistant.",
+          "description": "Cipher connects an Alexa Custom Skill to your private self-hosted assistant.",
+          "examplePhrases": [
+            "Alexa, open Cipher",
+            "Alexa, ask Cipher to check my server health",
+            "Alexa, ask Cipher to turn off the bedroom light"
+          ],
+          "keywords": ["assistant", "server", "home"]
+        },
+        "en-IN": {
+          "name": "Cipher",
+          "summary": "Private voice access to your Cipher assistant.",
+          "description": "Cipher connects an Alexa Custom Skill to your private self-hosted assistant.",
+          "examplePhrases": [
+            "Alexa, open Cipher",
+            "Alexa, ask Cipher to check my server health",
+            "Alexa, ask Cipher to turn off the bedroom light"
+          ],
+          "keywords": ["assistant", "server", "home"]
+        }
+      },
+      "isAvailableWorldwide": false,
+      "testingInstructions": "Invoke Cipher and ask for a read-only server health check.",
+      "category": "ORGANIZERS_AND_ASSISTANTS",
+      "distributionCountries": ["IN", "US"]
+    },
+    "apis": {
+      "custom": {
+        "endpoint": { "uri": "REPLACE_WITH_LAMBDA_ARN" },
+        "interfaces": []
+      }
+    },
+    "privacyAndCompliance": {
+      "allowsPurchases": false,
+      "usesPersonalInfo": false,
+      "isChildDirected": false,
+      "isExportCompliant": true,
+      "containsAds": false
+    }
+  }
+}

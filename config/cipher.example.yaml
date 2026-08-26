@@ -1,0 +1,9 @@
+server:
+  command_timeout_seconds: 8
+  docker_binary: docker
+  systemctl_binary: systemctl
+  max_log_lines: 500
+
+dangerous_operations:
+  require_confirmation: true
+  confirmation_ttl_seconds: 120

@@ -1,0 +1,28 @@
+read:
+  domains:
+    - sensor
+    - binary_sensor
+    - light
+    - switch
+    - climate
+
+control:
+  entities:
+    - light.office
+    - light.bedroom
+    - switch.desk
+  services:
+    light:
+      - turn_on
+      - turn_off
+      - toggle
+    switch:
+      - turn_on
+      - turn_off
+      - toggle
+
+deny:
+  domains:
+    - lock
+    - alarm_control_panel
+    - cover

@@ -1,0 +1,7 @@
+docker:
+  readable:
+    - jellyfin
+    - homeassistant
+    - immich-server
+  controllable:
+    - jellyfin

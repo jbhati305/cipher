@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cipher-assistant"
+version = "0.1.0"
+description = "Typed infrastructure tools and an Alexa bridge for Cipher"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "cryptography==50.0.1",
+  "fastapi==0.141.1",
+  "httpx==0.28.1",
+  "mcp==2.1.1",
+  "psutil==7.2.2",
+  "pydantic==2.13.4",
+  "PyYAML==6.0.3",
+  "uvicorn==0.52.4",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "pytest-cov==7.1.0",
+  "ruff==0.16.3",
+]
+
+[project.scripts]
+cipher-mcp = "cipher_mcp.server:main"
+cipher-alexa-bridge = "alexa_bridge.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cipher_mcp", "src/alexa_bridge"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "S", "UP", "B", "ASYNC"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S106", "S107"]

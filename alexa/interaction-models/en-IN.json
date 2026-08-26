@@ -1,0 +1,31 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "cipher",
+      "intents": [
+        {
+          "name": "CipherQueryIntent",
+          "slots": [
+            { "name": "Query", "type": "AMAZON.SearchQuery" }
+          ],
+          "samples": [
+            "ask {Query}",
+            "do {Query}",
+            "check {Query}",
+            "tell me {Query}",
+            "find out {Query}",
+            "to {Query}"
+          ]
+        },
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.YesIntent", "samples": [] },
+        { "name": "AMAZON.NoIntent", "samples": [] },
+        { "name": "AMAZON.FallbackIntent", "samples": [] },
+        { "name": "AMAZON.NavigateHomeIntent", "samples": [] }
+      ],
+      "types": []
+    }
+  }
+}

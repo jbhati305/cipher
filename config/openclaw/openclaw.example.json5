@@ -1,0 +1,78 @@
+// Merge these settings through scripts/configure-openclaw.sh. Secrets resolve from private files.
+{
+  secrets: {
+    providers: {
+      cipher_gateway: {
+        source: "file",
+        path: "/absolute/path/to/cipher/state/openclaw-gateway-token",
+        mode: "singleValue",
+      },
+    },
+  },
+  gateway: {
+    bind: "loopback",
+    auth: {
+      mode: "token",
+      token: { source: "file", provider: "cipher_gateway", id: "value" },
+    },
+    http: {
+      endpoints: {
+        responses: { enabled: true },
+      },
+    },
+  },
+  tools: { exec: { mode: "auto" } },
+  agents: {
+    entries: {
+      cipher: {
+        models: {
+          "openai/*": { agentRuntime: { id: "codex" } },
+        },
+        tools: {
+          allow: ["cipher-tools__*", "group:web", "group:memory", "sessions_spawn", "session_status"],
+          deny: ["group:runtime", "group:fs", "group:nodes"],
+          elevated: { enabled: false },
+        },
+      },
+    },
+  },
+  plugins: {
+    entries: {
+      codex: {
+        enabled: true,
+        config: {
+          discovery: { enabled: true, timeoutMs: 5000 },
+          appServer: { mode: "guardian" },
+          codexPlugins: { enabled: false },
+          computerUse: { enabled: false },
+        },
+      },
+      acpx: {
+        enabled: true,
+        config: {
+          permissionMode: "approve-reads",
+          nonInteractivePermissions: "deny",
+          probeAgent: "claude",
+          pluginToolsMcpBridge: false,
+          openClawToolsMcpBridge: false,
+        },
+      },
+    },
+  },
+  acp: {
+    enabled: true,
+    backend: "acpx",
+    defaultAgent: "claude",
+    allowedAgents: ["claude"],
+  },
+  mcp: {
+    servers: {
+      "cipher-tools": {
+        transport: "stdio",
+        command: "/absolute/path/to/cipher/scripts/run-mcp.sh",
+        enabled: true,
+        codex: { agents: ["cipher"] },
+      },
+    },
+  },
+}

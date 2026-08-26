@@ -1,0 +1,5 @@
+services:
+  readable:
+    - ssh
+    - docker
+  controllable: []

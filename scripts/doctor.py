@@ -88,6 +88,7 @@ def check_openclaw() -> None:
     # map, so the agent's index has to be resolved before reading its models.
     agent_list = command("openclaw", "agents", "list", "--json")
     runtime_config: dict = {}
+    live_primary_model = None
     try:
         agents_config = (
             json.loads(agent_list.stdout) if agent_list and agent_list.returncode == 0 else []
@@ -96,6 +97,13 @@ def check_openclaw() -> None:
             (i for i, entry in enumerate(agents_config) if entry.get("id") == agent_id), None
         )
         if agent_index is not None:
+            # Live source of truth for which model is actually primary right
+            # now - deliberately not CIPHER_PRIMARY_MODEL from .env, which can
+            # drift from the live agent config (e.g. someone runs `openclaw
+            # config set agents.list[N].model` directly). Falling back to the
+            # env var only when the live value is unavailable keeps the check
+            # honest about what OpenClaw will really route to.
+            live_primary_model = agents_config[agent_index].get("model")
             models_path = f"agents.list[{agent_index}].models"
             runtime = command("openclaw", "config", "get", models_path, "--json")
             runtime_config = (
@@ -103,6 +111,7 @@ def check_openclaw() -> None:
             )
     except (AttributeError, json.JSONDecodeError, StopIteration):
         runtime_config = {}
+        live_primary_model = None
     # This wildcard mapping is what the delegated Codex specialist session runs
     # under, not the primary model (see the next check). It stays named around
     # "openai/*" -> CIPHER_PRIMARY_RUNTIME because that is genuinely what it
@@ -128,7 +137,7 @@ def check_openclaw() -> None:
     # NOT cover the standing `cipher-specialist-codex` session, which is
     # intentionally still on the real Codex runtime and still has this gap -
     # that is a known, accepted, open risk, not something this check can pass.
-    primary_model = os.getenv("CIPHER_PRIMARY_MODEL", "")
+    primary_model = live_primary_model or os.getenv("CIPHER_PRIMARY_MODEL", "")
     if not primary_model:
         result(
             "SETUP",

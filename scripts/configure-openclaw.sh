@@ -120,6 +120,15 @@ case "$primary_runtime" in
     ;;
 esac
 
+# A specific openai/* primary model (e.g. a cheap router model) needs its own
+# non-colliding models[] entry, or it inherits the openai/* -> codex runtime
+# mapping set above (model entry wins over provider entry, per
+# docs/openclaw-agent-runtime.md). An empty object falls through to the plain
+# `auto` API-key path instead of the codex app-server harness.
+if [[ "${CIPHER_PRIMARY_MODEL:-}" == openai/* && "${CIPHER_PRIMARY_MODEL}" != "openai/*" ]]; then
+  openclaw config set "${AGENT_PATH}.models[\"$CIPHER_PRIMARY_MODEL\"]" '{}' --strict-json --merge
+fi
+
 if openclaw mcp status 2>/dev/null | grep -q 'cipher-tools'; then
   echo "Cipher MCP server is already registered."
 else

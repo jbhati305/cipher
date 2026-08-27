@@ -7,3 +7,48 @@
 - **Why it failed:** root cause
 - **Do not retry unless:** condition that would change the outcome
 -->
+
+## Attempt: Pin an older OpenClaw npm version to get `agents.entries` schema back
+- **What:** Downloaded/installed several older OpenClaw versions (back to the very first
+  published release, 2026.1.29) into isolated npm prefixes and dumped `config schema` /
+  tested `config set agents.entries.<id>.tools.allow` in each, hoping an older version would
+  accept the `agents.entries` path this repo's scripts assumed.
+- **Result:** Every version tested, from the earliest release through current, rejected
+  `agents.entries` and used `agents.list[]` (array, indexed) instead.
+- **Why it failed:** `agents.entries` never existed in any published OpenClaw version — this
+  was a mistake in the original script, not version drift. Fixed by resolving the agent's array
+  index instead (see CHANGED_FILES.md).
+- **Do not retry unless:** OpenClaw publishes a version that reintroduces an id-keyed agents map
+  (check `openclaw config schema` before assuming).
+
+## Attempt: `openclaw models auth setup-token --provider openai` / `--provider codex`
+- **What:** Tried to reuse the existing Codex CLI login via OpenClaw's `setup-token` subcommand
+  (designed to sync a token from an already-authenticated provider CLI), first with
+  `--provider openai`, then `--provider codex`.
+- **Result:** Both failed identically: `Error: No provider token-auth plugins found. Install one
+  via 'openclaw plugins install'.`
+- **Why it failed:** The codex plugin registers a `text-inference: codex` capability, not a
+  token-auth-capable provider matching either id under OpenClaw's `setup-token` mechanism.
+  `setup-token` simply isn't the right path for this provider/plugin combination.
+- **Do not retry unless:** A future `@openclaw/codex` plugin version explicitly documents
+  `setup-token` support (check `openclaw plugins inspect codex` for auth capabilities first).
+  In practice, auto-discovery (see DECISIONS.md) makes this step unnecessary anyway.
+
+## Attempt: Diagnose "problem communicating with required skill" as a TLS/cert-trust issue
+- **What:** Extensive investigation assuming Amazon's Alexa backend couldn't trust the
+  certificate Tailscale Funnel serves — checked chain completeness via openssl, researched
+  Let's Encrypt ISRG Root X2 (ECDSA-only root) vs ISRG Root X1 (RSA) compatibility gaps,
+  researched *.ts.net domain reputation/blocklisting, fetched Amazon's own SSL requirements
+  docs.
+- **Result:** All research was inconclusive/eventually irrelevant. Real root cause (found later)
+  was a bug in our own signature verification code, not TLS/cert trust at all — confirmed once
+  server logs showed the cert-chain fetch from Amazon succeeding and *our own* signature
+  verification rejecting the request afterward.
+- **Why it failed:** Jumped to an external/infrastructure hypothesis before exhausting our own
+  logs. The generic "alexa signature rejected" log line (no exception detail) hid the real
+  reason; once exception detail was added to the log, the actual cause (self-signed-root check
+  bug) was found in one retry.
+- **Do not retry unless:** N/A — lesson for future debugging: check own application logs with
+  full exception detail before researching external infrastructure causes, especially once
+  evidence shows the remote party's request actually reached us (e.g. we made an outbound
+  request as part of handling it, as `alexa_signature.py` does when fetching Amazon's cert).

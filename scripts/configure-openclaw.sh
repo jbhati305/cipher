@@ -123,10 +123,22 @@ esac
 # A specific openai/* primary model (e.g. a cheap router model) needs its own
 # non-colliding models[] entry, or it inherits the openai/* -> codex runtime
 # mapping set above (model entry wins over provider entry, per
-# docs/openclaw-agent-runtime.md). An empty object falls through to the plain
-# `auto` API-key path instead of the codex app-server harness.
+# docs/openclaw-agent-runtime.md).
+#
+# SECURITY: this MUST explicitly set agentRuntime.id to "openclaw" (the
+# embedded runtime), not an empty object. Verified live: an empty override
+# ("falls through to auto") did NOT actually keep the model off the Codex
+# app-server harness -- it still resolved to agentHarnessId "codex", which
+# exposes its own native "bash"/"apply_patch" tools that are NOT covered by
+# any of this agent's tools.deny groups (group:fs/group:runtime only cover
+# OpenClaw's own generic tool names; Codex's app-server tool calls bypass
+# OpenClaw's tool-policy layer entirely -- confirmed via a live probe that
+# read /etc/passwd through the "bash" tool despite tools.deny). Only an
+# explicit agentRuntime.id="openclaw" override actually routes this model
+# through OpenClaw's embedded runtime, where tools.allow/deny is enforced.
 if [[ "${CIPHER_PRIMARY_MODEL:-}" == openai/* && "${CIPHER_PRIMARY_MODEL}" != "openai/*" ]]; then
-  openclaw config set "${AGENT_PATH}.models[\"$CIPHER_PRIMARY_MODEL\"]" '{}' --strict-json --merge
+  openclaw config set "${AGENT_PATH}.models[\"$CIPHER_PRIMARY_MODEL\"]" \
+    '{"agentRuntime":{"id":"openclaw"}}' --strict-json --merge
 fi
 
 if openclaw mcp status 2>/dev/null | grep -q 'cipher-tools'; then

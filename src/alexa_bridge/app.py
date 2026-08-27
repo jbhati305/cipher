@@ -185,9 +185,10 @@ def create_app(
                 envelope.request.timestamp,
                 config.signature_max_age_seconds,
             )
-        except AlexaSignatureError:
+        except AlexaSignatureError as exc:
             LOGGER.warning(
-                "alexa signature rejected",
+                "alexa signature rejected: %s",
+                exc,
                 extra={
                     "request_id": correlation_id,
                     "channel": "alexa",

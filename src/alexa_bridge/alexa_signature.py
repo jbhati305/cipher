@@ -66,16 +66,17 @@ def _validate_chain(certs: list[x509.Certificate], now: dt.datetime) -> x509.Cer
         names = []
     if _REQUIRED_SAN not in names:
         raise AlexaSignatureError("certificate is missing the required Alexa hostname")
+    # Verify each certificate is directly issued by the next one up the chain.
+    # Real-world CAs commonly serve a chain whose last certificate is itself a
+    # cross-sign issued by an unrelated CA (e.g. Amazon's echo-api chain ends
+    # in "Amazon Root CA 1", which is issued by Starfield's root, not
+    # self-signed) rather than a literal self-signed root, so the top-most
+    # served certificate is not required to be self-signed here.
     for cert, issuer in zip(certs, certs[1:], strict=False):
         try:
             cert.verify_directly_issued_by(issuer)
         except (InvalidSignature, ValueError, TypeError) as exc:
             raise AlexaSignatureError("certificate chain signature is invalid") from exc
-    root = certs[-1]
-    try:
-        root.verify_directly_issued_by(root)
-    except (InvalidSignature, ValueError, TypeError) as exc:
-        raise AlexaSignatureError("certificate chain root is not self-signed") from exc
     return leaf
 
 

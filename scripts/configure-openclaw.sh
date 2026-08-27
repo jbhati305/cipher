@@ -33,8 +33,16 @@ gateway_token_file="$STATE_DIR/openclaw-gateway-token"
 printf '%s' "$OPENCLAW_GATEWAY_TOKEN" > "$gateway_token_file"
 chmod 600 "$gateway_token_file"
 
-openclaw plugins install @openclaw/codex
-openclaw plugins install @openclaw/acpx
+plugins_list_file="$(mktemp)"
+trap 'rm -f "$plugins_list_file"' EXIT
+openclaw plugins list --json 2>/dev/null > "$plugins_list_file" || echo '{}' > "$plugins_list_file"
+for plugin in codex acpx; do
+  if jq -e --arg id "$plugin" 'any(.plugins[]?; .id == $id)' "$plugins_list_file" >/dev/null 2>&1; then
+    echo "Plugin already installed: $plugin"
+  else
+    openclaw plugins install "@openclaw/$plugin"
+  fi
+done
 openclaw config set gateway.bind loopback
 openclaw config set gateway.auth.mode token
 openclaw config set secrets.providers.cipher_gateway \
@@ -77,20 +85,32 @@ if ! openclaw agents list 2>/dev/null | grep -Eq "(^|[[:space:]])${AGENT_ID}([[:
     agent_args+=(--model "$CIPHER_PRIMARY_MODEL")
   fi
   openclaw "${agent_args[@]}"
-elif [[ -n "${CIPHER_PRIMARY_MODEL:-}" ]]; then
-  openclaw config set "agents.entries.${AGENT_ID}.model" "$CIPHER_PRIMARY_MODEL"
 fi
 
-openclaw config set "agents.entries.${AGENT_ID}.tools.allow" \
+# OpenClaw's config schema keys agents by array index (agents.list[N]), not by
+# id map (there is no agents.entries.<id> path in any published OpenClaw
+# release), so per-agent settings below must be resolved to a numeric index.
+AGENT_INDEX="$(openclaw config get agents.list --json | jq -r --arg id "$AGENT_ID" 'map(.id) | index($id)')"
+if [[ -z "$AGENT_INDEX" || "$AGENT_INDEX" == "null" ]]; then
+  echo "Could not find agent '$AGENT_ID' in agents.list after registration." >&2
+  exit 1
+fi
+AGENT_PATH="agents.list[${AGENT_INDEX}]"
+
+if [[ -n "${CIPHER_PRIMARY_MODEL:-}" ]]; then
+  openclaw config set "${AGENT_PATH}.model" "$CIPHER_PRIMARY_MODEL"
+fi
+
+openclaw config set "${AGENT_PATH}.tools.allow" \
   '["cipher-tools__*","group:web","group:memory","sessions_spawn","session_status"]'
-openclaw config set "agents.entries.${AGENT_ID}.tools.deny" \
+openclaw config set "${AGENT_PATH}.tools.deny" \
   '["group:runtime","group:fs","group:nodes"]'
-openclaw config set "agents.entries.${AGENT_ID}.tools.elevated.enabled" false
+openclaw config set "${AGENT_PATH}.tools.elevated.enabled" false
 
 primary_runtime="${CIPHER_PRIMARY_RUNTIME:-codex}"
 case "$primary_runtime" in
   codex|openclaw)
-    openclaw config set "agents.entries.${AGENT_ID}.models" \
+    openclaw config set "${AGENT_PATH}.models" \
       "{\"openai/*\":{\"agentRuntime\":{\"id\":\"$primary_runtime\"}}}" \
       --strict-json --merge
     ;;

@@ -69,6 +69,84 @@ def test_valid_signature_is_accepted():
     )
 
 
+def test_chain_ending_in_cross_signed_root_is_accepted():
+    # Real-world CAs (including Amazon's echo-api chain: leaf -> "Amazon RSA
+    # 2048 M01" -> "Amazon Root CA 1") commonly serve a chain whose last
+    # certificate is itself issued by an external CA (a cross-sign) rather
+    # than a literal self-signed root. Requiring self-signature on the last
+    # served certificate rejects every real Alexa request.
+    # The unrelated CA that cross-signed the "root" cert served in the
+    # chain (analogous to Amazon Root CA 1 being issued by Starfield's root).
+    # Its own key/cert is deliberately never included in the served chain.
+    unincluded_signer_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    unincluded_signer_name = x509.Name(
+        [x509.NameAttribute(NameOID.COMMON_NAME, "Unrelated External CA")]
+    )
+    external_root_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    external_root_name = x509.Name(
+        [x509.NameAttribute(NameOID.COMMON_NAME, "External Cross-Sign CA")]
+    )
+    external_root_cert = (
+        x509.CertificateBuilder()
+        .subject_name(external_root_name)
+        .issuer_name(unincluded_signer_name)
+        .public_key(external_root_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(NOW - dt.timedelta(days=1))
+        .not_valid_after(NOW + dt.timedelta(days=3650))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(unincluded_signer_key, hashes.SHA256())
+    )
+
+    intermediate_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    intermediate_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Intermediate CA")])
+    intermediate_cert = (
+        x509.CertificateBuilder()
+        .subject_name(intermediate_name)
+        .issuer_name(external_root_name)
+        .public_key(intermediate_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(NOW - dt.timedelta(days=1))
+        .not_valid_after(NOW + dt.timedelta(days=3650))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(external_root_key, hashes.SHA256())
+    )
+
+    leaf_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    leaf_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "echo-api.amazon.com")])
+    leaf_cert = (
+        x509.CertificateBuilder()
+        .subject_name(leaf_name)
+        .issuer_name(intermediate_name)
+        .public_key(leaf_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(NOW - dt.timedelta(days=1))
+        .not_valid_after(NOW + dt.timedelta(days=365))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.DNSName("echo-api.amazon.com")]), critical=False
+        )
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .sign(intermediate_key, hashes.SHA256())
+    )
+    chain_pem = (
+        leaf_cert.public_bytes(serialization.Encoding.PEM)
+        + intermediate_cert.public_bytes(serialization.Encoding.PEM)
+        + external_root_cert.public_bytes(serialization.Encoding.PEM)
+    )
+    # Unique URL so this test's cert isn't shadowed by another test's cached
+    # public key for the shared CHAIN_URL (the module-level cert cache is
+    # keyed by URL and persists across tests in the same process).
+    chain_url = "https://s3.amazonaws.com/echo.api/cross-signed-root-cert.pem"
+    verify_alexa_signature(
+        BODY,
+        _headers(BODY, leaf_key, chain_url=chain_url),
+        TIMESTAMP,
+        150,
+        now=NOW,
+        http_get=lambda url: chain_pem,
+    )
+
+
 def test_tampered_body_is_rejected():
     leaf_key, chain_pem = _build_chain()
     headers = _headers(BODY, leaf_key)

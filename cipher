@@ -52,15 +52,23 @@ def auth(args: argparse.Namespace) -> None:
     load_env()
     if args.provider == "codex":
         agent_id = os.environ.get("OPENCLAW_AGENT_ID", "cipher")
+        # If a local Codex CLI session already exists (~/.codex/auth.json),
+        # OpenClaw auto-discovers it for the codex-runtime "openai" provider
+        # at generation time and this step is not required at all -- check
+        # `./cipher doctor` first. `--agent` must precede the subcommand: it
+        # is a parent option on `openclaw models auth`, not on `login`.
+        # `--device-code` avoids needing a browser on a headless server;
+        # `setup-token` is not usable here (no token-auth plugin for openai).
         run(
             "openclaw",
             "models",
             "auth",
+            "--agent",
+            agent_id,
             "login",
             "--provider",
             "openai",
-            "--agent",
-            agent_id,
+            "--device-code",
             "--set-default",
         )
         print(

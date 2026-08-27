@@ -84,11 +84,25 @@ def check_openclaw() -> None:
     else:
         result("SETUP", "Cipher MCP server", "run ./cipher configure; test scripts/run-mcp.sh")
     expected_runtime = os.getenv("CIPHER_PRIMARY_RUNTIME", "codex")
-    runtime = command("openclaw", "config", "get", f"agents.entries.{agent_id}.models", "--json")
+    # OpenClaw keys agents by array index (agents.list[N].models), not by id
+    # map, so the agent's index has to be resolved before reading its models.
+    agent_list = command("openclaw", "agents", "list", "--json")
+    runtime_id = None
     try:
-        runtime_config = json.loads(runtime.stdout) if runtime and runtime.returncode == 0 else {}
-        runtime_id = runtime_config.get("openai/*", {}).get("agentRuntime", {}).get("id")
-    except (AttributeError, json.JSONDecodeError):
+        agents_config = (
+            json.loads(agent_list.stdout) if agent_list and agent_list.returncode == 0 else []
+        )
+        agent_index = next(
+            (i for i, entry in enumerate(agents_config) if entry.get("id") == agent_id), None
+        )
+        if agent_index is not None:
+            models_path = f"agents.list[{agent_index}].models"
+            runtime = command("openclaw", "config", "get", models_path, "--json")
+            runtime_config = (
+                json.loads(runtime.stdout) if runtime and runtime.returncode == 0 else {}
+            )
+            runtime_id = runtime_config.get("openai/*", {}).get("agentRuntime", {}).get("id")
+    except (AttributeError, json.JSONDecodeError, StopIteration):
         runtime_id = None
     if runtime_id == expected_runtime:
         result("PASS", "Primary runtime", f"{expected_runtime} is explicit and agent-scoped")

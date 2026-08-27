@@ -102,7 +102,7 @@ if [[ -n "${CIPHER_PRIMARY_MODEL:-}" ]]; then
 fi
 
 openclaw config set "${AGENT_PATH}.tools.allow" \
-  '["cipher-tools__*","group:web","group:memory","sessions_spawn","session_status"]'
+  '["cipher-tools__*","group:web","group:memory","sessions_send","session_status"]'
 openclaw config set "${AGENT_PATH}.tools.deny" \
   '["group:runtime","group:fs","group:nodes"]'
 openclaw config set "${AGENT_PATH}.tools.elevated.enabled" false

@@ -87,7 +87,7 @@ def check_openclaw() -> None:
     # OpenClaw keys agents by array index (agents.list[N].models), not by id
     # map, so the agent's index has to be resolved before reading its models.
     agent_list = command("openclaw", "agents", "list", "--json")
-    runtime_id = None
+    runtime_config: dict = {}
     try:
         agents_config = (
             json.loads(agent_list.stdout) if agent_list and agent_list.returncode == 0 else []
@@ -101,13 +101,58 @@ def check_openclaw() -> None:
             runtime_config = (
                 json.loads(runtime.stdout) if runtime and runtime.returncode == 0 else {}
             )
-            runtime_id = runtime_config.get("openai/*", {}).get("agentRuntime", {}).get("id")
     except (AttributeError, json.JSONDecodeError, StopIteration):
-        runtime_id = None
-    if runtime_id == expected_runtime:
-        result("PASS", "Primary runtime", f"{expected_runtime} is explicit and agent-scoped")
+        runtime_config = {}
+    # This wildcard mapping is what the delegated Codex specialist session runs
+    # under, not the primary model (see the next check). It stays named around
+    # "openai/*" -> CIPHER_PRIMARY_RUNTIME because that is genuinely what it
+    # tests: is the Codex harness reachable at all for openai/* models.
+    wildcard_runtime_id = runtime_config.get("openai/*", {}).get("agentRuntime", {}).get("id")
+    if wildcard_runtime_id == expected_runtime:
+        result(
+            "PASS",
+            "Codex harness runtime",
+            f"openai/* is explicit and agent-scoped ({expected_runtime})",
+        )
     else:
-        result("SETUP", "Primary runtime", "run ./cipher configure")
+        result("SETUP", "Codex harness runtime", "run ./cipher configure")
+    # Security-critical, separate from the check above: the PRIMARY model must
+    # carry its own explicit agentRuntime.id="openclaw" override so it runs on
+    # OpenClaw's embedded runtime, where tools.allow/tools.deny are enforced.
+    # Codex's own app-server harness exposes native tools (e.g. bash) that
+    # bypass tools.deny entirely (group:fs/group:runtime only cover OpenClaw's
+    # generic tool names) - confirmed live: /etc/passwd was readable through it
+    # before this override existed. An *empty* models[<id>] override is NOT
+    # enough; it must be the explicit string "openclaw" (see
+    # docs/ARCHITECTURE.md's decision record and commit a2db3f4). This does
+    # NOT cover the standing `cipher-specialist-codex` session, which is
+    # intentionally still on the real Codex runtime and still has this gap -
+    # that is a known, accepted, open risk, not something this check can pass.
+    primary_model = os.getenv("CIPHER_PRIMARY_MODEL", "")
+    if not primary_model:
+        result(
+            "SETUP",
+            "Primary model runtime (security)",
+            "set CIPHER_PRIMARY_MODEL; run ./cipher configure",
+        )
+    else:
+        primary_runtime_id = (
+            runtime_config.get(primary_model, {}).get("agentRuntime", {}).get("id")
+        )
+        if primary_runtime_id == "openclaw":
+            result(
+                "PASS",
+                "Primary model runtime (security)",
+                f"{primary_model} is pinned to the embedded openclaw runtime",
+            )
+        else:
+            result(
+                "FAIL",
+                "Primary model runtime (security)",
+                f"{primary_model} lacks an explicit agentRuntime.id=openclaw override; "
+                "it may be exposed to Codex-native tools bypassing tools.deny - "
+                "run ./cipher configure",
+            )
     auth = command("openclaw", "models", "status", "--agent", agent_id, "--json")
     auth_text = ((auth.stdout if auth else "") + (auth.stderr if auth else "")).lower()
     if auth and auth.returncode == 0 and "openai" in auth_text:

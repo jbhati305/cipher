@@ -3,27 +3,34 @@
 Cipher is a self-hosted personal AI assistant built around OpenClaw,
 with Alexa, Codex, Claude Code, server-management and Home Assistant integrations.
 
-OpenClaw owns the persistent agent, sessions, routing, memory, WebChat, and web tools. Its native
-Codex app-server harness is Cipher's primary runtime. Claude Code is an optional ACP specialist.
-Infrastructure access crosses a small MCP server that exposes typed, allowlisted operations—never
-an unrestricted root shell.
+OpenClaw owns the persistent agent, sessions, routing, memory, WebChat, and web tools. Cipher's
+primary model is a cheap, fast model that runs on OpenClaw's own embedded runtime and handles most
+turns directly (simple classification, typed tool calls); it delegates to a standing Codex
+specialist session only when a request needs deeper reasoning. Claude Code remains a separate,
+manual specialist a human invokes directly — it is not part of the automatic router. See
+[Architecture](docs/ARCHITECTURE.md) for why, including a known, accepted security gap on the
+delegated Codex path. Infrastructure access crosses a small MCP server that exposes typed,
+allowlisted operations—never an unrestricted root shell.
 
 ```text
 Alexa Custom Skill -> Tailscale Funnel -> Alexa Bridge (loopback)
                                                     |
 WebChat ----------------------------------------- OpenClaw
                                                     |
-                           native Codex harness <- Cipher agent -> Claude ACP
-                                                    |
-                                      Cipher MCP typed tools
-                                   server / Docker / systemd / HA
+                                 Cipher agent (cheap primary model,
+                                   embedded OpenClaw runtime)
+                                    |                        |
+                    delegates via sessions_send      Cipher MCP typed tools
+                       to Codex specialist session   server / Docker / systemd / HA
 ```
 
 ## Current features
 
 - Dedicated `cipher` OpenClaw agent and workspace.
-- Native Codex plugin in explicit `guardian` (`workspace-write`, reviewed approvals) mode.
-- Optional Claude Code specialist through OpenClaw's official `@openclaw/acpx` backend.
+- Cheap primary model pinned to OpenClaw's embedded runtime, with a standing Codex specialist
+  session (native Codex plugin, explicit `guardian` mode) reached via delegation for harder requests.
+- Optional Claude Code specialist through OpenClaw's official `@openclaw/acpx` backend, invoked
+  manually — not part of the automatic delegation path.
 - CPU, memory, load, uptime, disk, temperature, Docker, systemd, and Home Assistant tools.
 - Fixed argv execution, strict schemas, allowlists, bounded logs, and one-time confirmations.
 - Alexa `en-IN` and `en-US` models built around one `AMAZON.SearchQuery` intent.

@@ -22,6 +22,50 @@ The official plugin owns a managed app-server and discovers available account mo
 model is optional. Claude Code uses the official `@openclaw/acpx` adapter and is not in the path for
 ordinary questions.
 
+Cipher's primary model is `openai/gpt-5.4-nano` — a cheap, fast model whose only job on most turns
+is simple classification and function-calling (read a metric, call a typed MCP tool, answer a short
+factual question), which does not need a larger model's reasoning depth. It carries an explicit
+`agentRuntime.id: "openclaw"` override, so it runs on OpenClaw's own embedded runtime rather than on
+Codex's app-server harness. This is deliberate and security-load-bearing, not a cost optimization
+alone: verification during this router-agent rollout found that Codex's app-server harness exposes
+its own native tools (notably `bash`) that bypass OpenClaw's `tools.deny` entirely — the `group:fs`
+and `group:runtime` deny entries only cover OpenClaw's generic tool names, not Codex-native ones —
+and this was live-confirmed by reading `/etc/passwd` through it despite `tools.deny`. Only an
+*explicit* `agentRuntime.id: "openclaw"` override closes this; an empty `models[<id>]` override does
+not, even though it looks equivalent. With the explicit override in place, the primary model has no
+bash/exec tool at all and a live re-probe confirmed the `/etc/passwd` read is refused.
+
+When the primary model judges a request too complex for its own capability — deeper reasoning,
+multi-step work, or anything outside simple tool-calling — it delegates by calling `sessions_send`
+against a standing specialist session, `cipher-specialist-codex`, which stays on the real Codex
+runtime for genuine reasoning quality. If delegation fails, the primary model reports the failure
+directly in its own words; there is no automatic retry through a Claude specialist, since no working
+Claude delegation target exists (see below). This router split — a cheap model that classifies and
+calls typed tools directly, escalating to a stronger model only when needed — controls cost on every
+ordinary turn and also leaves room to swap the primary model for a local model later without
+touching the delegation path, since delegation is keyed off request complexity, not the primary
+model's own identity.
+
+**This delegation path is a known, open security gap, not a resolved one.** The
+`cipher-specialist-codex` session is intentionally left on the real Codex app-server runtime, for
+the reasoning quality that runtime provides — and it therefore has the exact same bash-tool
+tools.deny bypass described above, unfixed. Cipher's own `tools.allow` permits calling
+`sessions_send` to reach it, so this session is currently reachable from ordinary delegated
+requests. The operator was asked directly whether to cut off delegation until this is resolved, and
+chose to accept the risk short-term rather than lose delegation. No narrower Codex sandbox that
+actually confines reads (rather than just writes) is known to exist yet; a genuine fix — a narrower
+sandbox if one appears upstream, a different delegation target, or a permanent, explicitly
+re-confirmed acceptance of this risk — is still open. Do not read this document as saying the
+delegated path is secured: only the primary model's direct tool-calling path is.
+
+Claude Code delegation was also considered as a second specialist and descoped, for an unrelated
+reason: OpenClaw's `sessions_spawn(runtime="acp")` requires the *spawning* agent (`cipher`) to itself
+hold `apply_patch`/`edit`/`exec`/`process`/`read`/`write` permissions, which `cipher`'s own
+`tools.deny` blocks by design. Routing the spawn through OpenClaw's unrestricted default `main`
+agent instead would be a larger exposure, not a smaller one, so that path was rejected too. Claude
+Code therefore remains only the pre-existing manual, interactive specialist (`./cipher auth claude`,
+invoked directly by a human) — it is not part of the automatic router or its failure path.
+
 ## Boundaries
 
 ```text

@@ -281,3 +281,71 @@ async def test_timeout_returns_pending_without_cancelling_work(tmp_path):
     text = response.json()["response"]["outputSpeech"]["text"]
     assert "still working" in text
     assert result_response.json()["response"]["outputSpeech"]["text"] == "Analysis complete."
+
+
+def _announce_settings(tmp_path: Path, *, budget: float) -> BridgeSettings:
+    return replace(
+        settings(tmp_path, budget=budget),
+        home_assistant_url="http://127.0.0.1:8123",
+        home_assistant_token="ha-token",
+        home_assistant_timeout_seconds=2,
+        proactive_announce_enabled=True,
+        alexa_notify_service="notify.alexa_media_test",
+        alexa_dnd_entity="switch.test_dnd",
+    )
+
+
+@pytest.mark.asyncio
+async def test_late_completion_triggers_proactive_announcement(tmp_path):
+    fake = FakeOpenClaw(answer="Analysis complete.", delay=0.1)
+    config = _announce_settings(tmp_path, budget=0.001)
+    announce_calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        announce_calls.append(request)
+        if request.url.path == "/api/states/switch.test_dnd":
+            return httpx.Response(200, json={"state": "off"})
+        return httpx.Response(200, json=[])
+
+    app = create_app(
+        config,
+        openclaw_client=fake,
+        replay_store=ReplayStore(tmp_path / "replay.sqlite3"),
+        task_store=TaskStore(tmp_path / "tasks.sqlite3"),
+        announce_transport=httpx.MockTransport(handler),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await client.post("/alexa/query", json=envelope(query="analyze a large log"))
+        await asyncio.sleep(0.15)
+
+    assert len(announce_calls) == 2
+    assert announce_calls[0].url.path == "/api/states/switch.test_dnd"
+    assert announce_calls[1].url.path == "/api/services/notify/alexa_media_test"
+
+
+@pytest.mark.asyncio
+async def test_fast_completion_does_not_trigger_proactive_announcement(tmp_path):
+    fake = FakeOpenClaw(answer="All healthy.", delay=0)
+    config = _announce_settings(tmp_path, budget=5)
+    announce_calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        announce_calls.append(request)
+        return httpx.Response(200, json={"state": "off"})
+
+    app = create_app(
+        config,
+        openclaw_client=fake,
+        replay_store=ReplayStore(tmp_path / "replay.sqlite3"),
+        task_store=TaskStore(tmp_path / "tasks.sqlite3"),
+        announce_transport=httpx.MockTransport(handler),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post("/alexa/query", json=envelope(query="check my server"))
+
+    assert response.json()["response"]["outputSpeech"]["text"] == "All healthy."
+    assert announce_calls == []

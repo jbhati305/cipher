@@ -48,6 +48,12 @@ class BridgeSettings:
     state_dir: Path
     log_level: str
     verbose_request_logging: bool
+    home_assistant_url: str = ""
+    home_assistant_token: str = ""
+    home_assistant_timeout_seconds: float = 5
+    proactive_announce_enabled: bool = True
+    alexa_notify_service: str = ""
+    alexa_dnd_entity: str = ""
 
     @classmethod
     def from_env(cls) -> BridgeSettings:
@@ -68,6 +74,17 @@ class BridgeSettings:
             log_level=os.getenv("CIPHER_LOG_LEVEL", "INFO"),
             verbose_request_logging=os.getenv("CIPHER_VERBOSE_REQUEST_LOGGING", "false").lower()
             in {"1", "true", "yes"},
+            home_assistant_url=os.getenv("HOME_ASSISTANT_URL", "").rstrip("/"),
+            home_assistant_token=os.getenv("HOME_ASSISTANT_TOKEN", ""),
+            home_assistant_timeout_seconds=float(
+                os.getenv("HOME_ASSISTANT_TIMEOUT_SECONDS", "5")
+            ),
+            proactive_announce_enabled=os.getenv(
+                "ALEXA_PROACTIVE_ANNOUNCE_ENABLED", "true"
+            ).lower()
+            in {"1", "true", "yes"},
+            alexa_notify_service=os.getenv("HOME_ASSISTANT_ALEXA_NOTIFY_SERVICE", ""),
+            alexa_dnd_entity=os.getenv("HOME_ASSISTANT_ALEXA_DND_ENTITY", ""),
         )
 
     def validate(self, *, require_secrets: bool = True) -> None:
@@ -99,3 +116,16 @@ class BridgeSettings:
             raise ValueError("OPENCLAW_BASE_URL is invalid")
         if not _is_loopback_host(parsed.hostname):
             raise ValueError("OPENCLAW_BASE_URL must use a loopback host")
+        if self.home_assistant_url:
+            ha_parsed = urlparse(self.home_assistant_url)
+            if (
+                ha_parsed.scheme not in {"http", "https"}
+                or not ha_parsed.hostname
+                or ha_parsed.username is not None
+                or ha_parsed.password is not None
+            ):
+                raise ValueError("HOME_ASSISTANT_URL is invalid")
+            if not _is_loopback_host(ha_parsed.hostname):
+                raise ValueError("HOME_ASSISTANT_URL must use a loopback host")
+        if self.alexa_notify_service and "." not in self.alexa_notify_service:
+            raise ValueError("HOME_ASSISTANT_ALEXA_NOTIFY_SERVICE must be 'domain.service'")

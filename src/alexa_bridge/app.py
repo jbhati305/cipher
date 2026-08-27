@@ -9,11 +9,13 @@ import time
 import uuid
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from .alexa_signature import AlexaSignatureError, verify_alexa_signature
+from .announce import maybe_announce
 from .logging import configure_logging
 from .openclaw import OpenClawClient
 from .security import RateLimiter, ReplayStore
@@ -126,6 +128,7 @@ def create_app(
     openclaw_client: OpenClawClient | None = None,
     replay_store: ReplayStore | None = None,
     task_store: TaskStore | None = None,
+    announce_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     config = settings or BridgeSettings.from_env()
     config.validate(require_secrets=False)
@@ -278,13 +281,34 @@ def create_app(
 
         task_id = tasks.create(user_hash)
 
+        async def _announce_if_late(result_text: str) -> None:
+            # Only announce work that actually missed the sync budget: a task that finished
+            # in time was already spoken live in this same response, and announcing it again
+            # would be a confusing duplicate.
+            if time.monotonic() - started <= config.sync_budget_seconds:
+                return
+            await maybe_announce(
+                enabled=config.proactive_announce_enabled,
+                ha_url=config.home_assistant_url,
+                ha_token=config.home_assistant_token,
+                notify_service=config.alexa_notify_service,
+                dnd_entity=config.alexa_dnd_entity,
+                result_text=result_text,
+                timeout_seconds=config.home_assistant_timeout_seconds,
+                transport=announce_transport,
+            )
+
         async def run_task() -> str:
             try:
                 answer = await client.ask(query, user_hash, correlation_id)
             except Exception as exc:
                 tasks.fail(task_id, type(exc).__name__)
+                await _announce_if_late(
+                    "Your last Cipher task failed. Ask me for details."
+                )
                 raise
             tasks.complete(task_id, answer)
+            await _announce_if_late(answer)
             return answer
 
         running = asyncio.create_task(run_task(), name=f"cipher-alexa-{task_id}")

@@ -136,6 +136,55 @@ else
 fi
 openclaw config set mcp.servers.cipher-tools.codex.agents "[\"$AGENT_ID\"]"
 
+# Standing specialist sessions for router delegation (Task 3 of the
+# cipher-router-agent plan). OpenClaw has no CLI-level session-creation command
+# (confirmed: `openclaw sessions` is list/maintenance-only), so a standing
+# session with a stable, rediscoverable key can only be created by driving one
+# real agent turn where `cipher` calls the in-agent `sessions_spawn` tool with
+# a fixed `label` (the resolvable key for later `sessions_send label:...`
+# calls; `taskName` alone is NOT resolvable by `sessions_send`, it is only
+# run-registry metadata). Idempotent: skips creation if a session already
+# carries the expected `label`.
+session_label_exists() {
+  local label="$1"
+  openclaw sessions list --agent "$AGENT_ID" --json 2>/dev/null \
+    | jq -e --arg label "$label" 'any(.sessions[]?; .label == $label)' >/dev/null 2>&1
+}
+
+ensure_specialist_session() {
+  local label="$1" spawn_message="$2"
+  if session_label_exists "$label"; then
+    echo "Standing specialist session already exists: $label"
+    return 0
+  fi
+  echo "Creating standing specialist session: $label"
+  local spawn_output
+  spawn_output="$(mktemp)"
+  openclaw agent --agent "$AGENT_ID" --json --timeout 180 --message "$spawn_message" \
+    >"$spawn_output" 2>&1 || true
+  # Ground truth is the session store, not the agent's freeform reply text
+  # (which is not guaranteed to accurately restate the tool result).
+  if session_label_exists "$label"; then
+    echo "Standing specialist session created: $label"
+    rm -f "$spawn_output"
+  else
+    echo "Warning: standing specialist session '$label' was NOT created (see $spawn_output for the spawn attempt's output)." >&2
+    echo "This is non-fatal by design: configure must not weaken tools.allow/deny/elevated to work around it." >&2
+  fi
+}
+
+ensure_specialist_session "cipher-specialist-codex" \
+  'Call the sessions_spawn tool exactly once right now with these exact parameters: task="Standing Codex specialist session for router delegation. Idle until given work.", taskName="cipher-specialist-codex", label="cipher-specialist-codex", runtime="subagent", model="openai/gpt-5.5", mode="run", cleanup="keep". Do not do anything else. After the tool returns, reply with only the raw JSON result it returned, nothing else.'
+
+# NOTE (known, load-bearing for Task 4/5): as of this writing, this spawn is
+# expected to return status "forbidden" -- runtime="acp" requires the
+# requester's own tool policy to allow apply_patch/edit/exec/process/read/write
+# (all covered by this agent's denied group:fs/group:runtime), and this script
+# must not weaken that policy to work around it. See task-3-report.md for the
+# exact error and the architectural conflict it represents.
+ensure_specialist_session "cipher-specialist-claude" \
+  'Call the sessions_spawn tool exactly once right now with these exact parameters: task="Standing Claude specialist session for router delegation. Idle until given work.", taskName="cipher-specialist-claude", label="cipher-specialist-claude", runtime="acp", agentId="claude", mode="run", cleanup="keep". Do not do anything else. After the tool returns, reply with only the raw JSON result it returned, nothing else.'
+
 openclaw gateway install
 echo "OpenClaw is configured. Restart the gateway after authentication."
 echo "An empty CIPHER_PRIMARY_MODEL leaves model choice to current OpenClaw/Codex discovery."

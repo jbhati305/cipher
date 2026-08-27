@@ -30,7 +30,15 @@ class OpenClawClient:
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
             "x-openclaw-agent-id": self.agent_id,
-            "x-openclaw-session-key": f"alexa:{requester_hash}",
+            # Must be prefixed with "agent:<agentId>:" -- OpenClaw's session-key
+            # namespace determines routing. A bare "alexa:<hash>" key (no agent
+            # prefix) silently routes the turn to OpenClaw's unrestricted default
+            # "main" agent instead of "cipher", regardless of the
+            # x-openclaw-agent-id header above. Verified live: this was a real,
+            # long-standing bug -- every real Alexa request was reaching "main"
+            # (no tools.deny, no cipher-tools__* MCP registration) rather than
+            # the security-hardened "cipher" agent this project is built around.
+            "x-openclaw-session-key": f"agent:{self.agent_id}:alexa:{requester_hash}",
             "x-openclaw-message-channel": "alexa",
             "x-cipher-correlation-id": correlation_id,
         }

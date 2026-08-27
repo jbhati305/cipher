@@ -32,7 +32,12 @@ async def test_correct_agent_and_stable_session_identity_without_token_leak():
     assert answer == "Jellyfin is healthy."
     request = requests[0]
     assert request.headers["x-openclaw-agent-id"] == "cipher"
-    assert request.headers["x-openclaw-session-key"] == f"alexa:{'a' * 64}"
+    # Must be prefixed with "agent:<agentId>:" -- OpenClaw routes by session-key
+    # namespace, not solely by the x-openclaw-agent-id header. A bare "alexa:<hash>"
+    # key silently routed real requests to the unrestricted default "main" agent
+    # instead of "cipher" (verified live against the Gateway) -- this test
+    # previously encoded that exact bug as if it were correct behavior.
+    assert request.headers["x-openclaw-session-key"] == f"agent:cipher:alexa:{'a' * 64}"
     body = json.loads(request.content)
     assert body["user"] == f"alexa:{'a' * 64}"
     assert f"alexa:{'a' * 64}" in body["instructions"]

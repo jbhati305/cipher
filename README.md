@@ -83,6 +83,6 @@ tunnel setup, tunnel status, update
 - [Alexa](docs/ALEXA.md)
 - [OpenClaw](docs/OPENCLAW.md), [Codex](docs/CODEX.md), [Claude Code](docs/CLAUDE.md)
 - [Home Assistant](docs/HOME_ASSISTANT.md)
-- [Security](docs/SECURITY.md)
+- [Security](docs/SECURITY.md), [Secrets](docs/SECRETS.md)
 - [Operations](docs/OPERATIONS.md), [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Roadmap](docs/ROADMAP.md)

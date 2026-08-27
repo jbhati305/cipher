@@ -158,6 +158,10 @@ def update(_: argparse.Namespace) -> None:
     run("bash", str(ROOT / "scripts/update.sh"))
 
 
+def sync_env(_: argparse.Namespace) -> None:
+    run("bash", str(ROOT / "scripts/sync-env.sh"))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="./cipher",
@@ -195,6 +199,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("update", help="Fast-forward and update dependencies with verification").set_defaults(
         func=update
     )
+    sub.add_parser(
+        "sync-env", help="Regenerate .env from ~/.auth_keys.sh and ~/.env_vars.sh"
+    ).set_defaults(func=sync_env)
     return parser
 
 

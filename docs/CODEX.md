@@ -28,13 +28,27 @@ Codex harness fail closed: an incompatible route or unavailable app-server fails
 of silently falling back to OpenClaw's embedded runtime. Set it to `openclaw` only when that fallback
 is an intentional deployment choice.
 
+> **Caveat, security-critical for the PRIMARY model specifically:** the paragraph above describes
+> the general `openai/*` wildcard mapping (still accurate for the delegated
+> `cipher-specialist-codex` session, which does intentionally run on this Codex harness). Cipher's
+> *primary* model, however, now carries its own narrower, non-wildcard override that pins it to
+> the `openclaw` (embedded) runtime instead -- deliberately, not incidentally. Codex's native
+> app-server harness exposes tools (e.g. `bash`) that bypass this agent's `tools.deny`, so for the
+> primary model `openclaw` is the security-preferred runtime, not merely "an intentional deployment
+> choice" among equals. See `docs/SECURITY.md`'s residual-risk section and `docs/ARCHITECTURE.md`
+> for the full decision record (commit `a2db3f4`) before changing this for the primary model.
+> `scripts/doctor.py`'s "Primary model runtime (security)" check enforces this live.
+
 The repository explicitly sets `plugins.entries.codex.config.appServer.mode=guardian` and
 `tools.exec.mode=auto`. Current OpenClaw documentation says guardian resolves to on-request,
 automatic review, and `workspace-write` when allowed. Native Codex apps and computer-use are off.
 The repository never sets YOLO or bypass flags.
 
 Useful private operator checks are `openclaw models status --json`, `/codex account`, `/codex mcp`,
-and `/status` (which should report `Runtime: OpenAI Codex`).
+and `/status`. `/status` reporting `Runtime: OpenAI Codex` is expected for the delegated
+`cipher-specialist-codex` session; for Cipher's primary model, the security override above means
+`/status` should instead show the embedded `openclaw` runtime -- do not treat that as a
+misconfiguration.
 
 Official references reviewed 2026-08-26:
 [OpenAI Codex app-server](https://developers.openai.com/codex/app-server/),

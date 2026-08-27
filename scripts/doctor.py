@@ -138,29 +138,53 @@ def check_openclaw() -> None:
     # intentionally still on the real Codex runtime and still has this gap -
     # that is a known, accepted, open risk, not something this check can pass.
     primary_model = live_primary_model or os.getenv("CIPHER_PRIMARY_MODEL", "")
-    if not primary_model:
+    # An EMPTY primary model is not a safe "not yet configured" state - it is
+    # the shipped .env.example default, and scripts/configure-openclaw.sh's
+    # security override only fires for a non-empty openai/* id, so an empty
+    # primary model leaves OpenClaw/Codex's own discovery to pick some
+    # openai/* model, which then matches the openai/* -> CIPHER_PRIMARY_RUNTIME
+    # wildcard mapping checked above. When that wildcard is "codex" (the
+    # script's own default), this is the exact bash-tool-bypass vulnerability
+    # commit a2db3f4 fixed - so this must FAIL, not SETUP, same as an
+    # explicit-but-wrong override. A primary model that isn't openai/* at all
+    # (e.g. a future local/non-OpenAI model) never matches this wildcard and
+    # was never exposed to this specific Codex-harness issue, so it stays
+    # non-failing.
+    matches_openai_wildcard = primary_model == "" or primary_model.startswith("openai/")
+    if not matches_openai_wildcard:
         result(
             "SETUP",
             "Primary model runtime (security)",
-            "set CIPHER_PRIMARY_MODEL; run ./cipher configure",
+            f"{primary_model} is not an openai/* model; the Codex-harness-bypass "
+            "check does not apply to it",
         )
     else:
-        primary_runtime_id = (
-            runtime_config.get(primary_model, {}).get("agentRuntime", {}).get("id")
-        )
+        if primary_model:
+            # Explicit model: its own models[<id>] override wins if present,
+            # otherwise it falls through to the openai/* wildcard mapping.
+            primary_runtime_id = (
+                runtime_config.get(primary_model, {}).get("agentRuntime", {}).get("id")
+                or wildcard_runtime_id
+            )
+            label = primary_model
+        else:
+            # Empty CIPHER_PRIMARY_MODEL: discovery picks some openai/* model,
+            # which is governed entirely by the wildcard mapping above.
+            primary_runtime_id = wildcard_runtime_id
+            label = "(empty CIPHER_PRIMARY_MODEL; openai/* discovery applies)"
         if primary_runtime_id == "openclaw":
             result(
                 "PASS",
                 "Primary model runtime (security)",
-                f"{primary_model} is pinned to the embedded openclaw runtime",
+                f"{label} is pinned to the embedded openclaw runtime",
             )
         else:
             result(
                 "FAIL",
                 "Primary model runtime (security)",
-                f"{primary_model} lacks an explicit agentRuntime.id=openclaw override; "
+                f"{label} lacks an explicit agentRuntime.id=openclaw override; "
                 "it may be exposed to Codex-native tools bypassing tools.deny - "
-                "run ./cipher configure",
+                "set a non-empty CIPHER_PRIMARY_MODEL and run ./cipher configure",
             )
     auth = command("openclaw", "models", "status", "--agent", agent_id, "--json")
     auth_text = ((auth.stdout if auth else "") + (auth.stderr if auth else "")).lower()

@@ -101,8 +101,6 @@ if [[ -n "${CIPHER_PRIMARY_MODEL:-}" ]]; then
   openclaw config set "${AGENT_PATH}.model" "$CIPHER_PRIMARY_MODEL"
 fi
 
-openclaw config set "${AGENT_PATH}.tools.allow" \
-  '["cipher-tools__*","group:web","group:memory","sessions_send","session_status"]'
 openclaw config set "${AGENT_PATH}.tools.deny" \
   '["group:runtime","group:fs","group:nodes"]'
 openclaw config set "${AGENT_PATH}.tools.elevated.enabled" false
@@ -164,7 +162,7 @@ session_label_exists() {
 }
 
 ensure_specialist_session() {
-  local label="$1" spawn_message="$2"
+  local label="$1" spawn_message="$2" required="${3:-false}"
   if session_label_exists "$label"; then
     echo "Standing specialist session already exists: $label"
     return 0
@@ -181,21 +179,44 @@ ensure_specialist_session() {
     rm -f "$spawn_output"
   else
     echo "Warning: standing specialist session '$label' was NOT created (see $spawn_output for the spawn attempt's output)." >&2
-    echo "This is non-fatal by design: configure must not weaken tools.allow/deny/elevated to work around it." >&2
+    echo "This must not be worked around by weakening tools.allow/deny/elevated." >&2
+    if [[ "$required" == "true" ]]; then
+      echo "Error: '$label' is a required specialist session (the only automatic delegation target); aborting configure." >&2
+      exit 1
+    fi
   fi
 }
 
+# This must run BEFORE the final, narrower ${AGENT_PATH}.tools.allow is set
+# below: on a fresh install cipher's tools.allow has not yet been restricted
+# (or, on a re-run, this call is a no-op because the session already exists),
+# so sessions_spawn is still reachable here. If this ordering were reversed,
+# a fresh install could never create the standing Codex specialist session --
+# sessions_spawn is deliberately absent from the final allowlist (Task 4).
+# Required (hard failure) because this is the only automatic delegation
+# target the router prompt (agents/cipher/AGENTS.md) relies on.
 ensure_specialist_session "cipher-specialist-codex" \
-  'Call the sessions_spawn tool exactly once right now with these exact parameters: task="Standing Codex specialist session for router delegation. Idle until given work.", taskName="cipher-specialist-codex", label="cipher-specialist-codex", runtime="subagent", model="openai/gpt-5.5", mode="run", cleanup="keep". Do not do anything else. After the tool returns, reply with only the raw JSON result it returned, nothing else.'
+  'Call the sessions_spawn tool exactly once right now with these exact parameters: task="Standing Codex specialist session for router delegation. Idle until given work.", taskName="cipher-specialist-codex", label="cipher-specialist-codex", runtime="subagent", model="openai/gpt-5.5", mode="run", cleanup="keep". Do not do anything else. After the tool returns, reply with only the raw JSON result it returned, nothing else.' \
+  true
 
-# NOTE (known, load-bearing for Task 4/5): as of this writing, this spawn is
-# expected to return status "forbidden" -- runtime="acp" requires the
-# requester's own tool policy to allow apply_patch/edit/exec/process/read/write
-# (all covered by this agent's denied group:fs/group:runtime), and this script
-# must not weaken that policy to work around it. See task-3-report.md for the
-# exact error and the architectural conflict it represents.
-ensure_specialist_session "cipher-specialist-claude" \
-  'Call the sessions_spawn tool exactly once right now with these exact parameters: task="Standing Claude specialist session for router delegation. Idle until given work.", taskName="cipher-specialist-claude", label="cipher-specialist-claude", runtime="acp", agentId="claude", mode="run", cleanup="keep". Do not do anything else. After the tool returns, reply with only the raw JSON result it returned, nothing else.'
+# TODO: the Claude specialist session is permanently blocked -- sessions_spawn
+# with runtime="acp" requires the SPAWNING agent's own tool policy to allow
+# apply_patch/edit/exec/process/read/write, which this agent's tools.deny
+# (group:fs/group:runtime) categorically denies by design (see
+# .superpowers/sdd/2026-08-27-cipher-router-agent/progress.md, Task 3, and
+# docs/ARCHITECTURE.md). Re-enable only after a real fix for that ACP
+# tool-policy conflict lands (e.g. a narrowly-scoped exception, not a blanket
+# group:fs/group:runtime allow) -- until then this call would spend a live
+# agent turn (with a 180s wait) on every `./cipher configure` run for a
+# known-permanent failure, so it stays disabled.
+# ensure_specialist_session "cipher-specialist-claude" \
+#   'Call the sessions_spawn tool exactly once right now with these exact parameters: task="Standing Claude specialist session for router delegation. Idle until given work.", taskName="cipher-specialist-claude", label="cipher-specialist-claude", runtime="acp", agentId="claude", mode="run", cleanup="keep". Do not do anything else. After the tool returns, reply with only the raw JSON result it returned, nothing else.'
+
+# Final, narrower allowlist: includes sessions_send (for delegation) but
+# deliberately NOT sessions_spawn (Task 4) -- must be applied AFTER the
+# ensure_specialist_session calls above, see the comment there.
+openclaw config set "${AGENT_PATH}.tools.allow" \
+  '["cipher-tools__*","group:web","group:memory","sessions_send","session_status"]'
 
 openclaw gateway install
 echo "OpenClaw is configured. Restart the gateway after authentication."

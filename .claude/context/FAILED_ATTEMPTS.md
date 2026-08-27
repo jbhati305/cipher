@@ -52,3 +52,33 @@
   full exception detail before researching external infrastructure causes, especially once
   evidence shows the remote party's request actually reached us (e.g. we made an outbound
   request as part of handling it, as `alexa_signature.py` does when fetching Amazon's cert).
+
+## Attempt: Local Ollama model as cipher's fast-responder tier
+- **What:** Pulled `qwen2.5:3b` (confirmed `tools` capability), wired it into cipher's agent
+  config, and benchmarked real tool-calling latency both directly against Ollama and through the
+  full OpenClaw/cipher pipeline.
+- **Result:** Tool selection was fast (2-5s), but generating the actual spoken final answer took
+  22-25s for a normal health-check response, and the model produced unrequested markdown despite
+  explicit instructions not to.
+- **Why it failed:** This laptop has only 7.1GB RAM (4.3GB available, shared with Home
+  Assistant/Jellyfin/OpenClaw already running) and no usable GPU (integrated AMD Radeon only) --
+  measured generation throughput was ~8 tokens/sec on the Ryzen 5500U CPU. That's a hardware
+  ceiling, not a model-choice problem; smaller quantized models would be somewhat faster but with
+  worse instruction-following, not fast enough to matter.
+- **Do not retry unless:** This machine gets a usable GPU, or the target moves to a
+  non-latency-critical channel (not Alexa's ~10s sync budget).
+
+## Attempt: Groq as cipher's fast-responder tier
+- **What:** Installed the Groq provider plugin, authenticated, and benchmarked tool-calling
+  latency both directly against Groq's API and through the full OpenClaw/cipher pipeline, across
+  three different models (`openai/gpt-oss-20b`, `openai/gpt-oss-120b`, `qwen/qwen3.8-27b`).
+- **Result:** Raw isolated API calls were excellent (sub-second, every time). Through the real
+  pipeline, requests took 10-38s and were highly inconsistent.
+- **Why it failed:** Gateway logs showed the real cause: Groq's free tier returned `429` (rate
+  limited) after only ~3 real requests, and OpenClaw's retry backoff on a 429 waited 25-34
+  seconds before retrying. The model itself was never slow -- the wait was. A free tier that
+  rate-limits this fast, combined with a multi-second retry backoff, doesn't fit a real-time
+  voice pipeline regardless of which Groq model is selected.
+- **Do not retry unless:** Groq's free-tier rate limits become meaningfully more generous, or
+  usage volume through this bridge is verified to stay well under whatever the current per-minute
+  cap is (not established -- wasn't published in OpenClaw's docs).

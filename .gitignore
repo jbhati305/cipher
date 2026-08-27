@@ -22,7 +22,12 @@ credentials/
 secrets/
 *.token
 auth.json
-.claude/
+.claude/*
+!.claude/context/
+!.claude/context/**
+!.claude/hooks/
+!.claude/hooks/**
+!.claude/settings.json
 .codex/
 .openclaw/
 .cloudflared/
